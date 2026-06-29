@@ -96,7 +96,7 @@ legend_df %>%
   collapsible("Scoring legend (0–3 scale)", open = TRUE)
 ```
 
-# Data Import and Preparation
+<!-- # Data Import and Preparation -->
 
 ```{r load-data}
 # Adjust the path if the file lives elsewhere.
