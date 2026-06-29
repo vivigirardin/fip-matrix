@@ -1,0 +1,446 @@
+---
+title: "Interpretation and Analysis of the FIP Matrix"
+subtitle: "PARC-HBM and PARCToxicology as FAIR Implementing Communities"
+author: "Viviane Girardin"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 6
+)
+
+# --- Packages -------------------------------------------------------------
+# Install any missing packages, then load them.
+required <- c("tidyverse", "knitr", "scales")
+to_install <- required[!required %in% installed.packages()[, "Package"]]
+if (length(to_install) > 0) {
+  install.packages(to_install, repos = "https://cloud.r-project.org")
+}
+
+library(tidyverse)
+library(knitr)
+library(scales)
+
+# kableExtra gives prettier tables but is optional here. If it is installed we
+# use it; otherwise we fall back to knitr::kable via thin shims so the rest of
+# the document needs no changes.
+if (requireNamespace("kableExtra", quietly = TRUE)) {
+  library(kableExtra)
+} else {
+  kbl           <- function(x, ...) knitr::kable(x, ...)
+  kable_styling <- function(x, ...) x
+  scroll_box    <- function(x, ...) x
+}
+
+# Render kable tables as HTML so they can be embedded in collapsible blocks.
+options(knitr.table.format = "html")
+
+# Wrap a (k)able in a collapsible <details> block. Works in static HTML, so it
+# survives publishing to GitHub Pages with no JavaScript required.
+collapsible <- function(tbl, summary = "Show table", open = FALSE) {
+  knitr::asis_output(paste0(
+    if (open) "<details open>" else "<details>",
+    "\n<summary>", summary, "</summary>\n\n",
+    paste(as.character(tbl), collapse = "\n"),
+    "\n\n</details>"
+  ))
+}
+```
+
+# Background
+
+Through a **FAIR Implementation Profile (FIP)**, a **FAIR Implementing Community
+(FIC)** declares the **FAIR Enabling Resources (FERs)** (standards, identifiers,
+protocols, vocabularies, licences, etc) that it uses to address the FAIR
+principles. The FIP is built around **21 questions** derived from the **14 FAIR
+principles** (Findable, Accessible, Interoperable, Reusable). A **FIP matrix** places two or more FICs side by side so their FER choices can be compared.
+
+This report interprets a FIP matrix for two FICs within the **PARC** project:
+
+- **PARC-HBM** — Human Biomonitoring
+- **PARCToxicology**
+
+These were the only FICs related to PARC found in https://fip-matrix.streamlit.app/.
+
+For each FER, both FICs are scored on a **0–3 scale**:
+
+```{r legend-table, echo=FALSE}
+legend_df <- tibble(
+  Score = c(0L, 1L, 2L, 3L),
+  Meaning = c(
+    "No data",
+    "Resource in development / future use",
+    "Available resource / future use",
+    "Available resource / current use"
+  )
+)
+
+legend_df %>%
+  kbl(caption = "Scoring legend used throughout this report") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Scoring legend (0–3 scale)", open = TRUE)
+```
+
+# Data Import and Preparation
+
+```{r load-data}
+# Adjust the path if the file lives elsewhere.
+csv_path <- "2026-06-23T07-20_export.csv"
+
+raw <- read_csv(csv_path, show_col_types = FALSE)
+
+# Tidy column names for convenience.
+fip <- raw %>%
+  rename(
+    FIP_question = `FIP questions`,
+    Resource     = `FAIR Supporting Resource`,
+    PARC_HBM     = `PARC-HBM`,
+    PARC_Tox     = `PARCToxicology`
+  ) %>%
+  mutate(
+    Resource = str_squish(Resource),
+    # Derive the top-level FAIR principle from the first letter of the question.
+    Principle = recode(str_sub(FIP_question, 1, 1),
+      F = "Findable",
+      A = "Accessible",
+      I = "Interoperable",
+      R = "Reusable"
+    ),
+    # Derive whether the question concerns Data (-D) or Metadata (-MD).
+    Target = case_when(
+      str_detect(FIP_question, "-MD$") ~ "Metadata",
+      str_detect(FIP_question, "-D$")  ~ "Data",
+      TRUE                             ~ "General"
+    )
+  )
+```
+
+```{r score-labels}
+# Ordered factor for the maturity scale, reused in plots and tables.
+score_levels  <- 0:3
+score_labels  <- c("No data",
+                    "In development",
+                    "Available / future",
+                    "Available / current")
+
+label_score <- function(x) {
+  factor(x, levels = score_levels, labels = score_labels)
+}
+```
+
+# Data Overview
+
+```{r overview-counts}
+overview <- tibble(
+  Metric = c("Total matrix rows (FER × question)",
+             "Distinct FERs",
+             "Distinct FIP questions",
+             "FAIR principles covered"),
+  Value = c(nrow(fip),
+            n_distinct(fip$Resource),
+            n_distinct(fip$FIP_question),
+            n_distinct(fip$Principle))
+)
+
+overview %>%
+  kbl(caption = "High-level overview of the FIP matrix") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("High-level overview")
+```
+
+The matrix is organised by FAIR principle. The table below shows how many rows
+fall under each principle and whether they target **Data** or **Metadata**.
+
+```{r principle-target-breakdown}
+fip %>%
+  count(Principle, Target) %>%
+  pivot_wider(names_from = Target, values_from = n, values_fill = 0) %>%
+  arrange(factor(Principle,
+                 levels = c("Findable", "Accessible",
+                            "Interoperable", "Reusable"))) %>%
+  kbl(caption = "Number of matrix rows by FAIR principle and target") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Rows by FAIR principle and target")
+```
+
+# Summary Statistics per FIC
+
+The matrix is reshaped into long form so the two FICs can be compared directly.
+
+```{r long-form}
+fip_long <- fip %>%
+  pivot_longer(
+    cols = c(PARC_HBM, PARC_Tox),
+    names_to = "Community",
+    values_to = "Score"
+  ) %>%
+  mutate(
+    Community = recode(Community,
+      PARC_HBM = "PARC-HBM",
+      PARC_Tox = "PARCToxicology"),
+    Score_label = label_score(Score)
+  )
+```
+
+```{r score-distribution-table}
+fip_long %>%
+  count(Community, Score_label) %>%
+  pivot_wider(names_from = Score_label, values_from = n, values_fill = 0) %>%
+  kbl(caption = "Distribution of scores per FIC") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Score distribution per FIC")
+```
+
+```{r score-distribution-plot, fig.cap="Distribution of maturity scores by community."}
+ggplot(fip_long, aes(x = Score_label, fill = Community)) +
+  geom_bar(position = position_dodge(preserve = "single")) +
+  scale_fill_manual(values = c("PARC-HBM" = "#2c7fb8",
+                               "PARCToxicology" = "#de2d26")) +
+  labs(x = "Maturity / adoption level", y = "Number of resources",
+       title = "Resource maturity distribution",
+       fill = "Community") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+```{r adoption-summary}
+# An "adopted" resource is one that is at least available (score >= 2).
+adoption <- fip_long %>%
+  group_by(Community) %>%
+  summarise(
+    `Mean score`              = round(mean(Score), 2),
+    `No data (0)`             = sum(Score == 0),
+    `In development (1)`      = sum(Score == 1),
+    `Available, future (2)`   = sum(Score == 2),
+    `Available, current (3)`  = sum(Score == 3),
+    `Currently in use (3) %`  = percent(mean(Score == 3), accuracy = 0.1),
+    .groups = "drop"
+  )
+
+adoption %>%
+  kbl(caption = "Score summary per FIC") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Score summary per FIC")
+```
+
+# The FIP Matrix as a Heatmap
+
+In the heatmap below each cell is a FER, with colour showing its score for each
+FIC. FERs are grouped by FAIR principle.
+
+```{r heatmap, fig.height=14, fig.width=10, fig.cap="FIP matrix heatmap. Rows are resources (grouped by FAIR principle); columns are communities; colour encodes maturity."}
+heat_df <- fip_long %>%
+  mutate(
+    # Build a readable row label combining question and resource.
+    row_label = paste0(FIP_question, " | ", str_trunc(Resource, 45))
+  )
+
+ggplot(heat_df, aes(x = Community, y = fct_rev(factor(row_label)), fill = Score_label)) +
+  geom_tile(colour = "white", linewidth = 0.4) +
+  geom_text(aes(label = Score), size = 3, colour = "grey20") +
+  scale_fill_manual(
+    values = c(
+      "No data"              = "#f0f0f0",
+      "In development"       = "#fee08b",
+      "Available / future"   = "#91cf60",
+      "Available / current"  = "#1a9850"
+    ),
+    drop = FALSE,
+    name = "Maturity"
+  ) +
+  facet_grid(Principle ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  labs(x = NULL, y = NULL, title = "FIP Matrix Heatmap") +
+  theme_minimal(base_size = 9) +
+  theme(
+    strip.text.y.left = element_text(angle = 0, face = "bold"),
+    strip.placement = "outside",
+    panel.grid = element_blank(),
+    axis.text.x = element_text(face = "bold"),
+    legend.position = "top"
+  )
+```
+
+# Comparison Between the Two FICs
+
+For every FER, the two FICs are compared and the relationship classified as
+shared, specific to one FIC, emerging, or absent from both.
+
+```{r gap-analysis}
+comparison <- fip %>%
+  mutate(
+    status = case_when(
+      PARC_HBM == 0 & PARC_Tox == 0          ~ "Neither (no data)",
+      PARC_HBM >= 2 & PARC_Tox >= 2          ~ "Shared / aligned",
+      PARC_HBM >= 2 & PARC_Tox <  2          ~ "HBM-only strength",
+      PARC_Tox >= 2 & PARC_HBM <  2          ~ "Tox-only strength",
+      TRUE                                   ~ "Emerging (in development)"
+    )
+  )
+
+comparison %>%
+  count(status, name = "Resources") %>%
+  arrange(desc(Resources)) %>%
+  kbl(caption = "Relationship between the two FICs, per FER") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Relationship counts per FER")
+```
+
+```{r comparison-plot, fig.cap="Number of resources by community-relationship category."}
+comparison %>%
+  count(status) %>%
+  ggplot(aes(x = reorder(status, n), y = n, fill = status)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = n), hjust = -0.2) +
+  coord_flip() +
+  expand_limits(y = max(table(comparison$status)) * 1.1) +
+  labs(x = NULL, y = "Number of resources",
+       title = "Alignment and divergence between PARC-HBM and PARCToxicology") +
+  theme_minimal(base_size = 12)
+```
+
+## FERs shared by both FICs
+
+```{r shared-resources}
+comparison %>%
+  filter(status == "Shared / aligned") %>%
+  select(FIP_question, Principle, Resource, PARC_HBM, PARC_Tox) %>%
+  arrange(Principle, FIP_question) %>%
+  kbl(caption = "FERs available to both FICs (score >= 2 each)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("FERs shared by both FICs")
+```
+
+# Coverage by FAIR Principle
+
+The mean score per principle shows which FAIR dimensions each FIC supports best.
+
+```{r principle-coverage}
+principle_summary <- fip_long %>%
+  group_by(Principle, Community) %>%
+  summarise(mean_score = mean(Score), .groups = "drop")
+
+ggplot(principle_summary,
+       aes(x = factor(Principle,
+                      levels = c("Findable", "Accessible",
+                                 "Interoperable", "Reusable")),
+           y = mean_score, fill = Community)) +
+  geom_col(position = position_dodge()) +
+  geom_text(aes(label = round(mean_score, 1)),
+            position = position_dodge(width = 0.9), vjust = -0.3, size = 3.2) +
+  scale_fill_manual(values = c("PARC-HBM" = "#2c7fb8",
+                               "PARCToxicology" = "#de2d26")) +
+  ylim(0, 3) +
+  labs(x = "FAIR principle", y = "Mean maturity score (0–3)",
+       title = "FAIR coverage by principle and community",
+       fill = "Community") +
+  theme_minimal(base_size = 12)
+```
+
+```{r principle-coverage-table}
+principle_summary %>%
+  pivot_wider(names_from = Community, values_from = mean_score) %>%
+  mutate(across(where(is.numeric), ~round(.x, 2))) %>%
+  arrange(factor(Principle,
+                 levels = c("Findable", "Accessible",
+                            "Interoperable", "Reusable"))) %>%
+  kbl(caption = "Mean maturity score per FAIR principle") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Mean score per FAIR principle")
+```
+
+# Data vs. Metadata
+
+Many FIP questions are declared separately for **Data (-D)** and **Metadata
+(-MD)**. Comparing the two shows whether each FIC supports its data and metadata
+to a similar degree.
+
+```{r data-vs-metadata}
+fip_long %>%
+  filter(Target %in% c("Data", "Metadata")) %>%
+  group_by(Community, Target) %>%
+  summarise(mean_score = round(mean(Score), 2), .groups = "drop") %>%
+  pivot_wider(names_from = Target, values_from = mean_score) %>%
+  kbl(caption = "Mean maturity for Data vs. Metadata targets") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("Data vs. Metadata mean scores")
+```
+
+# Interpretation and Key Findings
+
+```{r key-numbers, include=FALSE}
+# Pull a few numbers so the narrative below stays in sync with the data.
+hbm_mean   <- round(mean(fip$PARC_HBM), 2)
+tox_mean   <- round(mean(fip$PARC_Tox), 2)
+n_shared   <- sum(comparison$status == "Shared / aligned")
+n_hbm_only <- sum(comparison$status == "HBM-only strength")
+n_tox_only <- sum(comparison$status == "Tox-only strength")
+```
+
+A few points stand out from the matrix (`r nrow(fip)` FER entries across
+`r n_distinct(fip$Principle)` FAIR principles):
+
+- Scores are modest and broadly similar between the two FICs (mean
+  **`r hbm_mean`** for PARC-HBM and **`r tox_mean`** for PARCToxicology). Many
+  entries are `0`, so both FIPs are still being built up rather than complete.
+
+- Overlap is limited: only **`r n_shared`** FER(s) are available in both FICs,
+  while **`r n_hbm_only`** are specific to PARC-HBM and **`r n_tox_only`** to
+  PARCToxicology. The two FICs largely address the same questions with
+  different FERs.
+
+- The difference follows the domains. PARCToxicology uses chemistry-specific
+  FERs (e.g. InChI, IUPAC Gold Book, ChEMBL), while PARC-HBM uses
+  catalogue and infrastructure FERs (e.g. CSW, CKAN, Keycloak, CEDAR, RDF).
+  The Interoperable and Reusable principles diverge most, since these rely on
+  shared vocabularies, identifiers, and licences.
+
+As long as the FERs are not fully machine-actionable and FAIR, these
+differences in FER choice are worth documenting: they mark the points where
+re-use of (meta)data between the two FICs would need a case-by-case check or an
+agreed mapping.
+
+# Appendix
+
+## FERs specific to one FIC
+
+FERs available in one FIC but not the other (score >= 2 in one, < 2 in the
+other). Because a score of 0 means "no data", some of these gaps may reflect
+missing declarations rather than a deliberate difference in FER use.
+
+```{r divergent-resources}
+comparison %>%
+  filter(status %in% c("HBM-only strength", "Tox-only strength")) %>%
+  select(FIP_question, Principle, Resource, PARC_HBM, PARC_Tox, status) %>%
+  arrange(status, Principle, FIP_question) %>%
+  kbl(caption = "FERs available in one FIC but not the other") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover")) %>%
+  collapsible("FERs specific to one FIC")
+```
+
+## Full matrix
+
+```{r full-matrix}
+fip %>%
+  select(FIP_question, Principle, Target, Resource, PARC_HBM, PARC_Tox, Link) %>%
+  arrange(Principle, FIP_question, Resource) %>%
+  kbl(caption = "Complete FIP matrix") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 11) %>%
+  scroll_box(height = "500px") %>%
+  collapsible("Complete FIP matrix (all 51 rows)")
+```
